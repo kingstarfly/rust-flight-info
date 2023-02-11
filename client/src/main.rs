@@ -2,8 +2,11 @@ use std::io::{self, BufRead, Lines, StdinLock};
 use std::net::UdpSocket;
 // use std::env;
 use std::str;
+use std::time::Duration;
 
-use marshaling;
+use marshaling::{
+    self, marshal_string, marshal_u32, marshal_u8, unmarshal_string, unmarshal_u32, unmarshal_u8,
+};
 use networking;
 
 fn main() -> std::io::Result<()> {
@@ -17,6 +20,9 @@ fn main() -> std::io::Result<()> {
     let server_addr = hostname.to_string() + &":7878";
 
     let socket = UdpSocket::bind("127.0.0.1:7879")?; // for UDP4/6
+    socket
+        .set_read_timeout(Some(Duration::new(5, 0)))
+        .expect("Failed to set read timeout");
     socket
         .connect(&server_addr)
         .expect("couldn't connect to address");
@@ -57,8 +63,8 @@ fn main() -> std::io::Result<()> {
         dbg!(&service_choice);
 
         // Convert the service choice to a u32
-        let service_choice = service_choice
-            .parse::<u32>()
+        let service_choice: u8 = service_choice
+            .parse::<u8>()
             .expect("Error on parsing user's service choice");
 
         // Match the service choice to the appropriate service
@@ -95,62 +101,71 @@ fn main() -> std::io::Result<()> {
             }
         };
 
+        println!("Sending {} bytes", buffer_to_send.len());
         // Send the buffer to the communication service which will handle communication with the server. Specify the request ID, the buffer to send and the socket.
-        send_request(request_id, buffer_to_send, &socket, &server_addr);
-
         // Increment the request ID
         request_id += 1;
+        send_request(request_id, buffer_to_send, &socket, &server_addr);
 
-        /*
-        // Read a string from stdin
-        println!("Enter a string (BYE to exit):");
-        let line = lines.next();
-        let line = line.expect("Error on iteration").expect("Error on read");
+        // Receive from the server and print out the response. If error, print out error.
+        let (amt, src) = match socket.recv_from(&mut receive_buf) {
+            Ok((amt, src)) => {
+                println!("Received {} bytes from {}", amt, src);
+                (amt, src)
+            }
+            Err(_) => {
+                // TODO: Retry depending on invocation semantics
+                println!("Timed out waiting for response from the server");
+                break;
+            }
+        };
 
-        println!("Paramter 1 read from stdin '{}'", line);
-        if &line == "BYE" {
-            break;
+        // Handle the response
+        let i: usize = 0;
+        // Check if request ID is the same as the one we sent, if not, keep waiting.
+        let (received_request_id, i) = unmarshal_u32(&receive_buf, i);
+        if received_request_id != request_id {
+            println!("Request ID not the same as the one we sent. Continuing to wait.");
+            continue;
         }
-        marshal_string(&line, &mut buf);
 
-        // Read input from stdin and interpret it as a u32
-        println!("Enter a u32:");
-        let line = lines.next();
-        let line = line.expect("Error on iteration").expect("Error on read");
-        println!("Parameter 2 read from stdin '{}'", line);
+        // Check next byte and call specific handler
+        let (handler_byte, i) = unmarshal_u8(&receive_buf, i);
 
-        let param2 = line.parse::<u32>().expect("Error on parse");
-        marshal_u32(param2, &mut buf);
+        match handler_byte {
+            0 => {
+                // TODO 0: Error response handler
+                // Next bytes will be a string which is the error message.
+                let (error_message, _) = unmarshal_string(&receive_buf, i);
+                println!("Error: {}", error_message);
+            }
+            1 => {
+                // TODO 1: Call the Get Flight Identifiers service
+                println!("TODO: Service 1 handler");
+            }
+            2 => {
+                // TODO 2: Call the Get Flight Summary service
+                println!("TODO: Service 2 handler");
+            }
+            3 => {
+                // TODO 3: Call the Reserve Seats service
+                println!("TODO: Service 3 handler");
+            }
+            4 => {
+                // TODO 4: Call the Monitor Seat Availability service
+                println!("TODO: Service 4 handler");
+            }
+            _ => {
+                println!("Error: The handler byte is not 0, 1, 2, 3, or 4.");
+            }
+        }
 
-        // Read input from stdin and interpret it as a f32
-        println!("Enter a f32:");
-        let line = lines.next();
-        let line = line.expect("Error on iteration").expect("Error on read");
-        println!("Parameter 3 read from stdin '{}'", line);
-
-        let param3 = line.parse::<f32>().expect("Error on parse");
-        marshal_f32(param3, &mut buf);
-
-        // Send the buffer to the server
-        socket.send_to(&buf, &server_addr).expect("Error on send");
-
-        // Receive the echo from the server
-        let (amt, _src) = socket.recv_from(&mut receive_buf).expect("Error on recv");
-
-        // Print the size of the received buffer
-        println!("Received {} bytes", amt);
-
-        let echo = str::from_utf8(&receive_buf[..amt]).unwrap();
-        println!("Echo {}", echo);
-        */
     }
 
     Ok(())
 }
 
-fn prepare_get_flight_identifiers(
-    mut std_in_reader: &mut Lines<StdinLock>,
-) -> Vec<u8> {
+fn prepare_get_flight_identifiers(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
     const GET_FLIGHT_IDENTIFIERS_SERVICE_ID: u8 = 1;
     // Gets input from user for source and destination.
     println!("Enter source:");
@@ -164,10 +179,10 @@ fn prepare_get_flight_identifiers(
         .expect("Error on iteration")
         .expect("Error on read");
 
-    // Create a buffer to store the data to send
-    let mut buffer_to_send: Vec<u8> = vec![0; 2048];
+    // Create a buffer to store the data to send with capasity 2048 bytes
+    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
-    // Add service ID 
+    // Add service ID
     marshal_u8(GET_FLIGHT_IDENTIFIERS_SERVICE_ID, &mut buffer_to_send);
 
     // Add source
@@ -180,7 +195,7 @@ fn prepare_get_flight_identifiers(
     buffer_to_send
 }
 
-fn prepare_get_flight_summary(mut std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
+fn prepare_get_flight_summary(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
     const GET_FLIGHT_SUMMARY_SERVICE_ID: u8 = 2;
 
     // Gets input from user for flight ID.
@@ -195,8 +210,8 @@ fn prepare_get_flight_summary(mut std_in_reader: &mut Lines<StdinLock>) -> Vec<u
         .parse::<u32>()
         .expect("Error on parsing user's flight ID");
 
-    // Create a buffer to store the data to send
-    let mut buffer_to_send: Vec<u8> = vec![0; 2048];
+    // Create a buffer to store the data to send with capasity 2048 bytes
+    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add service ID as first byte
     marshal_u8(GET_FLIGHT_SUMMARY_SERVICE_ID, &mut buffer_to_send);
@@ -209,14 +224,12 @@ fn prepare_get_flight_summary(mut std_in_reader: &mut Lines<StdinLock>) -> Vec<u
 }
 
 fn send_request(request_id: u32, payload: Vec<u8>, socket: &UdpSocket, server_addr: &String) {
-    // Create a buffer to store the data to send
-    let mut buffer_to_send = vec![0; 2048];
+    // Create a buffer to store the data to send with capasity 2048 bytes
+    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
-    // Add request ID as first byte
+    // Add request ID as the first byte for the server to differentiate requests from multiple clients.
+    // Different from Service ID which is already handled by the respective `prepare` functions
     buffer_to_send.extend_from_slice(&request_id.to_be_bytes());
-
-    // Add status byte as second byte. 0 for success, 1 for failure
-    buffer_to_send.push(0);
 
     // Add payload to buffer
     buffer_to_send.extend_from_slice(&payload);
@@ -225,8 +238,3 @@ fn send_request(request_id: u32, payload: Vec<u8>, socket: &UdpSocket, server_ad
         .send_to(&buffer_to_send, &server_addr)
         .expect("Error on send");
 }
-
-
-// TODO: If any part errors in the logic of the service, then set the 2nd byte of the buffer to 1. Otherwise set it to 0. (The first byte is the request ID). Then marshal the error message. Stop reading the rest of the input.
-
-// TODO: Move all code into workspace and add a lib for marshaler to house the marshal and unmarshaling functions.

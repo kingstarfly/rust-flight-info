@@ -26,16 +26,7 @@ pub fn marshal_u32_array(numbers: &[u32], buf: &mut Vec<u8>) {
     }
 }
 
-// Function to read a string from a buffer. 
-// The first byte is the length of the string.
-// The next bytes are the string itself.
-// The function takes in a buffer and the index of the first byte of the string.
-// The function returns the string and the number of bytes read.
-
-pub fn unmarshal_string(buf: &[u8], i: usize) -> (String, usize) {
-    // Create a new index
-    let mut i = i;
-
+pub fn unmarshal_string(buf: &[u8], mut i: usize) -> (String, usize) {
     // First read the first byte to determine length of string
     let string_length: usize = buf[i].into();
     i += 1;
@@ -47,14 +38,15 @@ pub fn unmarshal_string(buf: &[u8], i: usize) -> (String, usize) {
     return (my_string, i);
 }
 
-// Function to read an u32 from a buffer.
-// The function takes in a buffer and the index of the first byte of the u32.
-// The function returns the u32 and the number of bytes read.
+pub fn unmarshal_u8(buf: &[u8], mut i: usize) -> (u8, usize) {
+    let my_u8 = buf[i];
+    i += 1;
 
-pub fn unmarshal_u32(buf: &[u8], i: usize) -> (u32, usize) {
-    // Create a new index
-    let mut i = i;
-    
+    return (my_u8, i);
+}
+
+
+pub fn unmarshal_u32(buf: &[u8], mut i: usize) -> (u32, usize) {
     // Then read the u32
     let my_u32 = u32::from_be_bytes([buf[i], buf[i+1], buf[i+2], buf[i+3]]);
     i += 4;
@@ -62,14 +54,8 @@ pub fn unmarshal_u32(buf: &[u8], i: usize) -> (u32, usize) {
     return (my_u32, i);
 }
 
-// Function to read an f32 from a buffer.
-// The function takes in a buffer and the index of the first byte of the f32.
-// The function returns the f32 and the number of bytes read.
 
-pub fn unmarshal_f32(buf: &[u8], i: usize) -> (f32, usize) {
-    // Create a new index
-    let mut i = i;
-
+pub fn unmarshal_f32(buf: &[u8], mut i: usize) -> (f32, usize) {
     // Then read the f32
     let my_f32 = f32::from_be_bytes([buf[i], buf[i+1], buf[i+2], buf[i+3]]);
     i += 4;
@@ -77,16 +63,7 @@ pub fn unmarshal_f32(buf: &[u8], i: usize) -> (f32, usize) {
     return (my_f32, i);
 }
 
-// Function to read an array of u32 from a buffer.
-// The function takes in a buffer and the index to start reading from.
-// The function returns the array of u32 and the number of bytes read.
-// The first byte is the length of the array.
-// The next bytes are the array itself.
-
-pub fn unmarshal_u32_array(buf: &[u8], i: usize) -> (Vec<u32>, usize) {
-    // Create a new index
-    let mut i = i;
-
+pub fn unmarshal_u32_array(buf: &[u8], mut i: usize) -> (Vec<u32>, usize) {
     // First read the first byte to determine length of array
     let array_length: usize = buf[i].into();
     i += 1;
