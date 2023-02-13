@@ -1,7 +1,9 @@
 //use std::io::{self, Read, Write, BufRead};
 use std::{
-    collections::{HashMap},
-    net::{SocketAddr, UdpSocket}, time::{SystemTime, UNIX_EPOCH}, fmt,
+    collections::HashMap,
+    fmt,
+    net::{SocketAddr, UdpSocket},
+    time::{SystemTime, UNIX_EPOCH},
 };
 //use std::env;
 //use std::str;
@@ -70,7 +72,6 @@ fn main() -> std::io::Result<()> {
         },
     );
 
-    
     // Build a hashmap of flight ID to a vector of WatchlistEntry
     let mut watchlist_db: HashMap<u32, Vec<WatchlistEntry>> = HashMap::new();
 
@@ -108,12 +109,13 @@ fn main() -> std::io::Result<()> {
             }
             1 => get_flight_ids_handler(&buf[i..], &flight_db),
             2 => get_flight_summary_handler(&buf[i..], &flight_db),
-            3 => {
-                reserve_seats_handler(&buf[i..], &mut flight_db, &mut watchlist_db, &socket)
-            }
-            4 => {
-                monitor_seat_availability_handler(&buf[i..], &mut flight_db, &mut watchlist_db, &client_addr)
-            }
+            3 => reserve_seats_handler(&buf[i..], &mut flight_db, &mut watchlist_db, &socket),
+            4 => monitor_seat_availability_handler(
+                &buf[i..],
+                &mut flight_db,
+                &mut watchlist_db,
+                &client_addr,
+            ),
             _ => {
                 println!("Error: The handler byte is not 0, 1, 2, 3, or 4.");
                 vec![]
@@ -155,10 +157,7 @@ fn error_handler(error_message: &str) -> Vec<u8> {
 
     buffer_to_send
 }
-fn get_flight_ids_handler(
-    buf: &[u8],
-    flight_db: &HashMap<u32, Flight>,
-) -> Vec<u8> {
+fn get_flight_ids_handler(buf: &[u8], flight_db: &HashMap<u32, Flight>) -> Vec<u8> {
     // Read the source and destination from the buffer.
     let (source, i) = unmarshal_string(buf, 0);
     let (destination, _) = unmarshal_string(buf, i);
@@ -218,7 +217,12 @@ fn get_flight_summary_handler(buf: &[u8], flight_db: &HashMap<u32, Flight>) -> V
     buffer_to_send
 }
 
-fn reserve_seats_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watchlist_db: &mut HashMap<u32, Vec<WatchlistEntry>>, socket: &UdpSocket) -> Vec<u8> {
+fn reserve_seats_handler(
+    buf: &[u8],
+    flight_db: &mut HashMap<u32, Flight>,
+    watchlist_db: &mut HashMap<u32, Vec<WatchlistEntry>>,
+    socket: &UdpSocket,
+) -> Vec<u8> {
     // Read id and num_seats from buf.
     let (flight_id, i) = unmarshal_u32(buf, 0);
     let (num_seats, _) = unmarshal_u32(buf, i);
@@ -243,16 +247,21 @@ fn reserve_seats_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watch
         // A cleaned vector of entries is a vector of entries that have not expired.
 
         let mut cleaned_watchlist = Vec::<WatchlistEntry>::new();
-        
+
         for entry in watchlist_db.get(&flight_id).unwrap() {
-            if u64::from(entry.0) > SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() {
+            if u64::from(entry.0)
+                > SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            {
                 cleaned_watchlist.push(entry.clone());
             }
         }
-        
+
         // Then, go through each entry of the cleaned vector and call inform_client.
         for entry in cleaned_watchlist.iter() {
-            inform_client(socket, entry.1);
+            inform_client(socket, entry.1, flight_id, flight.seats);
         }
 
         // Update the watchlist
@@ -271,7 +280,12 @@ fn reserve_seats_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watch
     buffer_to_send
 }
 
-fn monitor_seat_availability_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watchlist_db: &mut HashMap<u32, Vec<WatchlistEntry>>, client_addr: &SocketAddr) -> Vec<u8> {
+fn monitor_seat_availability_handler(
+    buf: &[u8],
+    flight_db: &mut HashMap<u32, Flight>,
+    watchlist_db: &mut HashMap<u32, Vec<WatchlistEntry>>,
+    client_addr: &SocketAddr,
+) -> Vec<u8> {
     // Read id and monitor interval from buf.
     let (flight_id, i) = unmarshal_u32(buf, 0);
     let (monitor_interval, _) = unmarshal_u32(buf, i);
@@ -282,7 +296,16 @@ fn monitor_seat_availability_handler(buf: &[u8], flight_db: &mut HashMap<u32, Fl
     }
 
     // Add the entry to the watchlist. Note: Converting u64 to u32 here is possibly unsafe, but we are relying on client to limit duration to 1 year (31536000).
-    let entry = WatchlistEntry((SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + u64::from(monitor_interval)).try_into().unwrap(), client_addr.clone());
+    let entry = WatchlistEntry(
+        (SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            + u64::from(monitor_interval))
+        .try_into()
+        .unwrap(),
+        client_addr.clone(),
+    );
 
     // Just append the entry to the watchlist.
     if watchlist_db.contains_key(&flight_id) {
@@ -300,7 +323,7 @@ fn monitor_seat_availability_handler(buf: &[u8], flight_db: &mut HashMap<u32, Fl
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add the handler byte.
-    buffer_to_send.push(4); 
+    buffer_to_send.push(4);
 
     // Add 1 if successful.
     buffer_to_send.push(1);
@@ -309,16 +332,21 @@ fn monitor_seat_availability_handler(buf: &[u8], flight_db: &mut HashMap<u32, Fl
 }
 
 // Sends a message to the socket to update them of the number of seats available.
-fn inform_client(socket: &UdpSocket, client_addr: SocketAddr) {
+fn inform_client(socket: &UdpSocket, client_addr: SocketAddr, flight_id: u32, seats: u32) {
     // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add the handler byte.
     buffer_to_send.push(4);
 
-    // Add 1 if successful.
-    buffer_to_send.push(1);
+    // Add the flight ID and seats to the buffer.
+    marshal_u32(flight_id, &mut buffer_to_send);
+    marshal_u32(seats, &mut buffer_to_send);
 
+    println!(
+        "Informing client: {}, flight_id: {}, seats: {}",
+        client_addr, flight_id, seats
+    );
     // Send the message to the client.
     socket
         .send_to(&buffer_to_send, &client_addr)
