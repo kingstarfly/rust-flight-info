@@ -74,17 +74,13 @@ fn main() -> std::io::Result<()> {
         // Each service will return a byte array that will be sent to the server. Size is at most 2048 bytes.
         let buffer_to_send: Vec<u8> = match service_choice {
             1 => {
-                // TODO 1: Call the Get Flight Identifiers service
                 prepare_get_flight_identifiers(&mut lines)
             }
             2 => {
-                // TODO 2: Call the Get Flight Summary service
                 prepare_get_flight_summary(&mut lines)
             }
             3 => {
-                // TODO 3: Call the Reserve Seats service
-                // Placeholder return
-                vec![0; 2048]
+                prepare_reserve_seats(&mut lines)
             }
             4 => {
                 // TODO 4: Call the Monitor Seat Availability service
@@ -150,7 +146,7 @@ fn main() -> std::io::Result<()> {
                 parse_get_flight_summary_response(&receive_buf[i..amt]);
             }
             3 => {
-                // parse_reserve_seats_response(&receive_buf[1..]);
+                parse_reserve_seats_response(&receive_buf[i..amt])
             }
             4 => {
                 // parse_monitor_seat_availability_response(&receive_buf[1..]);
@@ -177,6 +173,16 @@ fn parse_get_flight_summary_response(buf: &[u8]) {
     println!("Departure time: {}", convert_unix_time_to_datetime(departure_time).to_string());
     println!("Airfare: {}", airfare);
     println!("Seats: {}", seats);
+}
+
+fn parse_reserve_seats_response(buf: &[u8]) {
+    let (has_succeeded, _) = unmarshal_u8(buf, 0);
+    if has_succeeded == 1 {
+        println!("Reservation succeeded");
+    } else {
+        // This should not be reachable because any error will be already caught by the handler byte being 0.
+        println!("Reservation failed");
+    }
 }
 
 fn prepare_get_flight_identifiers(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
@@ -224,7 +230,7 @@ fn prepare_get_flight_summary(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
         .parse::<u32>()
         .expect("Error on parsing user's flight ID");
 
-    // Create a buffer to store the data to send with capasity 2048 bytes
+    // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add service ID as first byte
@@ -232,6 +238,49 @@ fn prepare_get_flight_summary(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
 
     // Add flight ID
     marshal_u32(flight_id, &mut buffer_to_send);
+
+    // Return the buffer
+    buffer_to_send
+}
+
+fn prepare_reserve_seats(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
+    const RESERVE_SEATS_SERVICE_ID: u8 = 3;
+
+    // Gets input from user for flight ID.
+    println!("Enter flight identifier:");
+    let flight_id = std_in_reader
+        .next()
+        .expect("Error on iteration")
+        .expect("Error on read");
+
+    // Gets input from user for number of seats.
+    println!("Enter number of seats to reserve:");
+    let seats = std_in_reader
+        .next()
+        .expect("Error on iteration")
+        .expect("Error on read");
+
+    // Convert the flight ID to a u32
+    let flight_id = flight_id
+        .parse::<u32>()
+        .expect("Error on parsing user's flight ID");
+
+    // Convert the number of seats to a u32
+    let seats = seats
+        .parse::<u32>()
+        .expect("Error on parsing user's number of seats");
+
+    // Create a buffer to store the data to send with capacity 2048 bytes
+    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
+
+    // Add service ID as first byte
+    marshal_u8(RESERVE_SEATS_SERVICE_ID, &mut buffer_to_send);
+
+    // Add flight ID
+    marshal_u32(flight_id, &mut buffer_to_send);
+
+    // Add number of seats
+    marshal_u32(seats, &mut buffer_to_send);
 
     // Return the buffer
     buffer_to_send
