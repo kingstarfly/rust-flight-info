@@ -65,11 +65,11 @@ pub fn unmarshal_f32(buf: &[u8], mut i: usize) -> (f32, usize) {
 
 pub fn unmarshal_u32_array(buf: &[u8], mut i: usize) -> (Vec<u32>, usize) {
     // First read the first byte to determine length of array
-    let array_length: usize = buf[i].into();
+    let array_length: u8 = buf[i];
     i += 1;
 
     // Then read the array
-    let mut my_array: Vec<u32> = Vec::with_capacity(array_length);
+    let mut my_array: Vec<u32> = Vec::with_capacity(array_length.into());
     for _ in 0..array_length {
         let my_u32 = u32::from_be_bytes([buf[i], buf[i+1], buf[i+2], buf[i+3]]);
         i += 4;

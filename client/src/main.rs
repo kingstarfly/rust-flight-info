@@ -4,8 +4,9 @@ use std::net::UdpSocket;
 use std::str;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc, NaiveDateTime, Local, TimeZone};
 use marshaling::{
-    self, marshal_string, marshal_u32, marshal_u8, unmarshal_string, unmarshal_u32, unmarshal_u8,
+    self, marshal_string, marshal_u32, marshal_u8, unmarshal_string, unmarshal_u32, unmarshal_u8, unmarshal_u32_array, unmarshal_f32,
 };
 use networking;
 
@@ -46,6 +47,8 @@ fn main() -> std::io::Result<()> {
         buf.clear();
 
         // Prompt the user to choose between 4 services.
+        println!("\n");
+        println!("=============================");
         println!("Choose a service:");
         println!("1. Get Flight Identifiers");
         println!("2. Get Flight Summary");
@@ -132,37 +135,48 @@ fn main() -> std::io::Result<()> {
         // Check next byte and call specific handler
         let (handler_byte, i) = unmarshal_u8(&receive_buf, i);
 
+        dbg!(handler_byte);
+
         match handler_byte {
             0 => {
-                // TODO 0: Error response handler
                 // Next bytes will be a string which is the error message.
                 let (error_message, _) = unmarshal_string(&receive_buf, i);
                 println!("Error: {}", error_message);
             }
             1 => {
-                // TODO 1: Call the Get Flight Identifiers service
-                println!("TODO: Service 1 handler");
+                parse_get_flight_identifiers_response(&receive_buf[i..amt]);
             }
             2 => {
-                // TODO 2: Call the Get Flight Summary service
-                println!("TODO: Service 2 handler");
+                parse_get_flight_summary_response(&receive_buf[i..amt]);
             }
             3 => {
-                // TODO 3: Call the Reserve Seats service
-                println!("TODO: Service 3 handler");
+                // parse_reserve_seats_response(&receive_buf[1..]);
             }
             4 => {
-                // TODO 4: Call the Monitor Seat Availability service
-                println!("TODO: Service 4 handler");
+                // parse_monitor_seat_availability_response(&receive_buf[1..]);
             }
             _ => {
-                println!("Error: The handler byte is not 0, 1, 2, 3, or 4.");
+                println!("Invalid handler byte");
             }
         }
 
     }
 
     Ok(())
+}
+
+fn parse_get_flight_identifiers_response(buf: &[u8]) {
+    let (flight_ids, i) = unmarshal_u32_array(buf, 0);
+    println!("Flight IDs: {:#?}", flight_ids);
+}
+
+fn parse_get_flight_summary_response(buf: &[u8]) {
+    let (departure_time, i) = unmarshal_u32(buf, 0);
+    let (airfare, i) = unmarshal_f32(buf, i);
+    let (seats, i) = unmarshal_u32(buf, i);
+    println!("Departure time: {}", convert_unix_time_to_datetime(departure_time).to_string());
+    println!("Airfare: {}", airfare);
+    println!("Seats: {}", seats);
 }
 
 fn prepare_get_flight_identifiers(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
@@ -237,4 +251,9 @@ fn send_request(request_id: u32, payload: Vec<u8>, socket: &UdpSocket, server_ad
     socket
         .send_to(&buffer_to_send, &server_addr)
         .expect("Error on send");
+}
+
+pub fn convert_unix_time_to_datetime(timestamp: u32)  -> DateTime<Local> {
+    let naive = NaiveDateTime::from_timestamp_opt(timestamp as i64, 0).unwrap();
+    Local.from_local_datetime(&naive).unwrap()
 }
