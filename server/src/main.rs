@@ -72,7 +72,7 @@ fn main() -> std::io::Result<()> {
 
     
     // Build a hashmap of flight ID to a vector of WatchlistEntry
-    let mut watchlist: HashMap<u32, Vec<WatchlistEntry>> = HashMap::new();
+    let mut watchlist_db: HashMap<u32, Vec<WatchlistEntry>> = HashMap::new();
 
     let socket = UdpSocket::bind("127.0.0.1:7878")?;
     // TODO: Set timeout for read?
@@ -109,12 +109,10 @@ fn main() -> std::io::Result<()> {
             1 => get_flight_ids_handler(&buf[i..], &flight_db),
             2 => get_flight_summary_handler(&buf[i..], &flight_db),
             3 => {
-                reserve_seats_handler(&buf[i..], &mut flight_db, &mut watchlist, &socket)
+                reserve_seats_handler(&buf[i..], &mut flight_db, &mut watchlist_db, &socket)
             }
             4 => {
-                // TODO 4: Call the Monitor Seat Availability service
-                println!("TODO: Service 4 handler");
-                vec![]
+                monitor_seat_availability_handler(&buf[i..], &mut flight_db, &mut watchlist_db, &client_addr)
             }
             _ => {
                 println!("Error: The handler byte is not 0, 1, 2, 3, or 4.");
@@ -220,7 +218,7 @@ fn get_flight_summary_handler(buf: &[u8], flight_db: &HashMap<u32, Flight>) -> V
     buffer_to_send
 }
 
-fn reserve_seats_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watchlist: &mut HashMap<u32, Vec<WatchlistEntry>>, socket: &UdpSocket) -> Vec<u8> {
+fn reserve_seats_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watchlist_db: &mut HashMap<u32, Vec<WatchlistEntry>>, socket: &UdpSocket) -> Vec<u8> {
     // Read id and num_seats from buf.
     let (flight_id, i) = unmarshal_u32(buf, 0);
     let (num_seats, _) = unmarshal_u32(buf, i);
@@ -240,13 +238,13 @@ fn reserve_seats_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watch
         return error_handler(&format!("Not enough seats available. You tried to reserve {num_seats} seats, but there are only {current_seats} seats available."));
     }
 
-    if watchlist.contains_key(&flight_id) {
+    if watchlist_db.contains_key(&flight_id) {
         // First, go through each entry and obtain a cleaned vector of entries.
         // A cleaned vector of entries is a vector of entries that have not expired.
 
         let mut cleaned_watchlist = Vec::<WatchlistEntry>::new();
         
-        for entry in watchlist.get(&flight_id).unwrap() {
+        for entry in watchlist_db.get(&flight_id).unwrap() {
             if u64::from(entry.0) > SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() {
                 cleaned_watchlist.push(entry.clone());
             }
@@ -258,7 +256,7 @@ fn reserve_seats_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watch
         }
 
         // Update the watchlist
-        watchlist.insert(flight_id, cleaned_watchlist);
+        watchlist_db.insert(flight_id, cleaned_watchlist);
     };
 
     // Create a buffer to store the data to send with capacity 2048 bytes
@@ -273,6 +271,42 @@ fn reserve_seats_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watch
     buffer_to_send
 }
 
+fn monitor_seat_availability_handler(buf: &[u8], flight_db: &mut HashMap<u32, Flight>, watchlist_db: &mut HashMap<u32, Vec<WatchlistEntry>>, client_addr: &SocketAddr) -> Vec<u8> {
+    // Read id and monitor interval from buf.
+    let (flight_id, i) = unmarshal_u32(buf, 0);
+    let (monitor_interval, _) = unmarshal_u32(buf, i);
+
+    // Check if the flight exists.
+    if !flight_db.contains_key(&flight_id) {
+        return error_handler("No flight found for the given flight ID.");
+    }
+
+    // Add the entry to the watchlist. Note: Converting u64 to u32 here is possibly unsafe, but we are relying on client to limit duration to 1 year (31536000).
+    let entry = WatchlistEntry((SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + u64::from(monitor_interval)).try_into().unwrap(), client_addr.clone());
+
+    // Just append the entry to the watchlist.
+    if watchlist_db.contains_key(&flight_id) {
+        let watchlist = watchlist_db.get_mut(&flight_id).unwrap();
+        watchlist.push(entry);
+    } else {
+        let mut watchlist = Vec::<WatchlistEntry>::new();
+        watchlist.push(entry);
+        watchlist_db.insert(flight_id, watchlist);
+    }
+
+    println!("Added entry to watchlist.");
+
+    // Create a buffer to store the data to send with capacity 2048 bytes
+    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
+
+    // Add the handler byte.
+    buffer_to_send.push(4); 
+
+    // Add 1 if successful.
+    buffer_to_send.push(1);
+
+    buffer_to_send
+}
 
 // Sends a message to the socket to update them of the number of seats available.
 fn inform_client(socket: &UdpSocket, client_addr: SocketAddr) {

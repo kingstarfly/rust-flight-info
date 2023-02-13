@@ -1,7 +1,8 @@
+use std::error::Error;
 use std::io::{self, BufRead, Lines, StdinLock};
-use std::net::UdpSocket;
+use std::net::{UdpSocket, SocketAddr};
 // use std::env;
-use std::str;
+use std::{str, env};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc, NaiveDateTime, Local, TimeZone};
@@ -11,16 +12,15 @@ use marshaling::{
 use networking;
 
 fn main() -> std::io::Result<()> {
-    // let args: Vec<String> = env::args().collect();
-    // if args.len() < 2 {
-    //     println!("Usage {} hostname", args[0]);
-    //     std::process::exit(1);
-    // }
-    // let hostname = &args[1];
-    let hostname = "127.0.0.1";
-    let server_addr = hostname.to_string() + &":7878";
+    
+    let addrs = [
+        SocketAddr::from(([127, 0, 0, 1], 7879)),
+        SocketAddr::from(([127, 0, 0, 1], 7880)),
+        SocketAddr::from(([127, 0, 0, 1], 7881)),
+    ];
 
-    let socket = UdpSocket::bind("127.0.0.1:7879")?; // for UDP4/6
+    let server_addr = SocketAddr::from(([127, 0, 0, 1], 7878));
+    let socket = UdpSocket::bind(&addrs[..])?; // for UDP4/6
     socket
         .set_read_timeout(Some(Duration::new(5, 0)))
         .expect("Failed to set read timeout");
@@ -74,18 +74,40 @@ fn main() -> std::io::Result<()> {
         // Each service will return a byte array that will be sent to the server. Size is at most 2048 bytes.
         let buffer_to_send: Vec<u8> = match service_choice {
             1 => {
-                prepare_get_flight_identifiers(&mut lines)
+                match prepare_get_flight_identifiers(&mut lines) {
+                    Ok(buffer) => buffer,
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        continue;
+                    }
+                }
             }
             2 => {
-                prepare_get_flight_summary(&mut lines)
+                match prepare_get_flight_summary(&mut lines) {
+                    Ok(buffer) => buffer,
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        continue;
+                    }
+                }
             }
             3 => {
-                prepare_reserve_seats(&mut lines)
+                match prepare_reserve_seats(&mut lines) {
+                    Ok(buffer) => buffer,
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        continue;
+                    }
+                }
             }
             4 => {
-                // TODO 4: Call the Monitor Seat Availability service
-                // Placeholder return
-                vec![0; 2048]
+                match prepare_monitor_seat_availability(&mut lines) {
+                    Ok(buffer) => buffer,
+                    Err(e) => {
+                        println!("Error: {}", e);
+                        continue;
+                    }
+                }
             }
             5 => {
                 // Exit the program
@@ -149,7 +171,7 @@ fn main() -> std::io::Result<()> {
                 parse_reserve_seats_response(&receive_buf[i..amt])
             }
             4 => {
-                // parse_monitor_seat_availability_response(&receive_buf[1..]);
+                parse_monitor_seat_availability_response(&receive_buf[i..amt]);
             }
             _ => {
                 println!("Invalid handler byte");
@@ -185,19 +207,27 @@ fn parse_reserve_seats_response(buf: &[u8]) {
     }
 }
 
-fn prepare_get_flight_identifiers(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
+fn parse_monitor_seat_availability_response(buf: &[u8]) {
+    let (has_succeeded, _) = unmarshal_u8(buf, 0);
+    if has_succeeded == 1 {
+        println!("Subscription succeeded");
+    } else {
+        // This should not be reachable because any error will be already caught by the handler byte being 0.
+        println!("Subscription failed");
+    }
+}
+
+// Might return errors from IO, or from bad user input.
+fn prepare_get_flight_identifiers(std_in_reader: &mut Lines<StdinLock>) -> Result<Vec<u8>, Box<dyn Error>> {
     const GET_FLIGHT_IDENTIFIERS_SERVICE_ID: u8 = 1;
     // Gets input from user for source and destination.
     println!("Enter source:");
     let source = std_in_reader
-        .next()
-        .expect("Error on iteration")
-        .expect("Error on read");
+        .next().unwrap()?;
+
     println!("Enter destination:");
     let destination = std_in_reader
-        .next()
-        .expect("Error on iteration")
-        .expect("Error on read");
+        .next().unwrap()?;
 
     // Create a buffer to store the data to send with capasity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
@@ -212,23 +242,21 @@ fn prepare_get_flight_identifiers(std_in_reader: &mut Lines<StdinLock>) -> Vec<u
     marshal_string(&destination, &mut buffer_to_send);
 
     // Return the buffer
-    buffer_to_send
+    Ok(buffer_to_send)
 }
 
-fn prepare_get_flight_summary(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
+fn prepare_get_flight_summary(std_in_reader: &mut Lines<StdinLock>) -> Result<Vec<u8>, Box<dyn Error>> {
     const GET_FLIGHT_SUMMARY_SERVICE_ID: u8 = 2;
 
     // Gets input from user for flight ID.
     println!("Enter flight identifier:");
     let flight_id = std_in_reader
         .next()
-        .expect("Error on iteration")
-        .expect("Error on read");
+        .unwrap()?;
 
     // Convert the flight ID to a u32
     let flight_id = flight_id
-        .parse::<u32>()
-        .expect("Error on parsing user's flight ID");
+        .parse::<u32>()?;
 
     // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
@@ -240,35 +268,43 @@ fn prepare_get_flight_summary(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
     marshal_u32(flight_id, &mut buffer_to_send);
 
     // Return the buffer
-    buffer_to_send
+    Ok(buffer_to_send)
 }
 
-fn prepare_reserve_seats(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
+fn prepare_reserve_seats(std_in_reader: &mut Lines<StdinLock>) -> Result<Vec<u8>, Box<dyn Error>> {
     const RESERVE_SEATS_SERVICE_ID: u8 = 3;
 
     // Gets input from user for flight ID.
     println!("Enter flight identifier:");
     let flight_id = std_in_reader
         .next()
-        .expect("Error on iteration")
-        .expect("Error on read");
+        .unwrap()?;
 
     // Gets input from user for number of seats.
     println!("Enter number of seats to reserve:");
     let seats = std_in_reader
         .next()
-        .expect("Error on iteration")
-        .expect("Error on read");
+        .unwrap()?;
 
     // Convert the flight ID to a u32
-    let flight_id = flight_id
-        .parse::<u32>()
-        .expect("Error on parsing user's flight ID");
+    let flight_id = match flight_id
+        .parse::<u32>() {
+            Ok(flight_id) => flight_id,
+            Err(_) => {
+                println!("Invalid flight ID");
+                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid flight ID")));
+            }
+        };
 
     // Convert the number of seats to a u32
-    let seats = seats
-        .parse::<u32>()
-        .expect("Error on parsing user's number of seats");
+    let seats = match seats
+        .parse::<u32>() {
+            Ok(seats) => seats,
+            Err(_) => {
+                println!("Invalid number of seats");
+                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid number of seats")));
+            }
+        };
 
     // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
@@ -283,10 +319,69 @@ fn prepare_reserve_seats(std_in_reader: &mut Lines<StdinLock>) -> Vec<u8> {
     marshal_u32(seats, &mut buffer_to_send);
 
     // Return the buffer
-    buffer_to_send
+    Ok(buffer_to_send)
 }
 
-fn send_request(request_id: u32, payload: Vec<u8>, socket: &UdpSocket, server_addr: &String) {
+fn prepare_monitor_seat_availability(std_in_reader: &mut Lines<StdinLock>) -> Result<Vec<u8>, Box<dyn Error>> {
+    const MONITOR_SEAT_AVAILABILITY_SERVICE_ID: u8 = 4;
+
+    // Gets input from user for flight ID.
+    println!("Enter flight identifier:");
+    let flight_id = std_in_reader
+        .next()
+        .unwrap()?;
+
+    // Gets input from user for monitor_interval.
+    const SECONDS_IN_YEAR: u32 = 31536000;
+    println!("Enter monitor interval, up to {} seconds (1 year):", SECONDS_IN_YEAR);
+    let monitor_interval = std_in_reader
+        .next()
+        .unwrap()?;
+
+    // Convert the flight ID to a u32
+    let flight_id = match flight_id
+        .parse::<u32>() {
+            Ok(flight_id) => flight_id,
+            Err(_) => {
+                println!("Invalid flight ID");
+                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid flight ID")));
+            }
+        };
+
+    // Check if monitor interval fits in a u32
+    if monitor_interval.len() > 10 {
+        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Monitor interval is too big.")));
+    }
+    // Convert the monitor interval to a u32
+    let monitor_interval = match monitor_interval
+        .parse::<u32>() {
+            Ok(monitor_interval) => monitor_interval,
+            Err(_) => {
+                println!("Invalid monitor interval");
+                return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid monitor interval")));
+            }
+        };
+
+    if monitor_interval > SECONDS_IN_YEAR {
+        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Monitor interval is too big.")));
+    }
+
+    // Create a buffer to store the data to send with capacity 2048 bytes
+    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
+
+    // Add service ID as first byte
+    marshal_u8(MONITOR_SEAT_AVAILABILITY_SERVICE_ID, &mut buffer_to_send);
+
+    // Add flight ID
+    marshal_u32(flight_id, &mut buffer_to_send);
+
+    // Add monitor interval
+    marshal_u32(monitor_interval, &mut buffer_to_send);
+
+    // Return the buffer
+    Ok(buffer_to_send)
+}
+fn send_request(request_id: u32, payload: Vec<u8>, socket: &UdpSocket, server_addr: &SocketAddr) {
     // Create a buffer to store the data to send with capasity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
