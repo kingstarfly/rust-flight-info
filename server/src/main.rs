@@ -29,6 +29,11 @@ impl Flight {
     }
 }
 
+struct ResponseCache {
+    request_id: u32,
+    response_payload: Vec<u8>,
+}
+
 #[derive(Eq, Hash, PartialEq, Clone)]
 struct WatchlistEntry(u32, SocketAddr);
 fn main() -> std::io::Result<()> {
@@ -72,6 +77,9 @@ fn main() -> std::io::Result<()> {
     // Build a hashmap of flight ID to a vector of WatchlistEntry
     let mut watchlist_db: HashMap<u32, Vec<WatchlistEntry>> = HashMap::new();
 
+    // Build a hashmap of request ID to a ResponseCache
+    let mut response_cache: HashMap<u32, ResponseCache> = HashMap::new();
+
     let socket = UdpSocket::bind("127.0.0.1:7878")?;
     // TODO: Set timeout for read?
     let mut buf = [0; 2048];
@@ -89,6 +97,22 @@ fn main() -> std::io::Result<()> {
         let i: usize = 0;
         let (request_id, i) = unmarshal_u32(&buf, i);
         println!("Request ID: {}", request_id);
+
+        // Check if the request ID is in the response cache.
+        // If it is, then use the cached payload.
+        // Or else, read service ID and call handler
+
+        if let Some(response_cache_entry) = response_cache.get(&request_id) {
+            // If the request ID is in the response cache, then send the cached payload.
+            println!("Sending cached response for request ID {}", request_id);
+            networking::send_response(
+                request_id,
+                response_cache_entry.response_payload.clone(),
+                &socket,
+                &client_addr,
+            );
+            continue;
+        } 
 
         // Read the service ID in the next byte.
         let (service_id, i) = unmarshal_u8(&buf, i);
@@ -110,6 +134,15 @@ fn main() -> std::io::Result<()> {
                 vec![]
             }
         };
+
+        // Add to the response cache.
+        response_cache.insert(
+            request_id,
+            ResponseCache {
+                request_id,
+                response_payload: payload.clone(),
+            },
+        );
 
         networking::send_response(request_id, payload, &socket, &client_addr)
     }
