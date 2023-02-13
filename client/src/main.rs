@@ -1,16 +1,15 @@
 use std::error::Error;
 use std::io::{self, BufRead, Lines, StdinLock};
 use std::net::{SocketAddr, UdpSocket};
-// use std::env;
 use std::time::{Duration, Instant};
-use std::{env, str};
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc};
+use networking;
 use marshaling::{
     self, marshal_string, marshal_u32, marshal_u8, unmarshal_f32, unmarshal_string, unmarshal_u32,
     unmarshal_u32_array, unmarshal_u8,
 };
-use networking;
+
 const DEFAULT_TIMEOUT: u32 = 5;
 
 fn main() -> std::io::Result<()> {
@@ -63,9 +62,6 @@ fn main() -> std::io::Result<()> {
             .expect("Error on iteration")
             .expect("Error on read");
 
-        // Debug message to show which service was read from stdin
-        dbg!(&service_choice);
-
         // Convert the service choice to a u32
         let service_choice: u8 = service_choice
             .parse::<u8>()
@@ -116,16 +112,14 @@ fn main() -> std::io::Result<()> {
             }
         };
 
-        println!("Sending {} bytes", buffer_to_send.len());
         // Send the buffer to the communication service which will handle communication with the server. Specify the request ID, the buffer to send and the socket.
         // Increment the request ID
         request_id += 1;
-        send_request(request_id, buffer_to_send, &socket, &server_addr);
+        networking::send_request(request_id, buffer_to_send, &socket, &server_addr);
 
         // Receive from the server and print out the response. If error, print out error.
-        let (amt, src) = match socket.recv_from(&mut receive_buf) {
+        let (amt, _) = match socket.recv_from(&mut receive_buf) {
             Ok((amt, src)) => {
-                println!("Received {} bytes from {}", amt, src);
                 (amt, src)
             }
             Err(_) => {
@@ -146,9 +140,6 @@ fn main() -> std::io::Result<()> {
 
         // Check next byte and call specific handler
         let (handler_byte, i) = unmarshal_u8(&receive_buf, i);
-
-        dbg!(handler_byte);
-
         match handler_byte {
             0 => {
                 // Next bytes will be a string which is the error message.
@@ -179,14 +170,14 @@ fn main() -> std::io::Result<()> {
 }
 
 fn parse_get_flight_identifiers_response(buf: &[u8]) {
-    let (flight_ids, i) = unmarshal_u32_array(buf, 0);
+    let (flight_ids, _) = unmarshal_u32_array(buf, 0);
     println!("Flight IDs: {:#?}", flight_ids);
 }
 
 fn parse_get_flight_summary_response(buf: &[u8]) {
     let (departure_time, i) = unmarshal_u32(buf, 0);
     let (airfare, i) = unmarshal_f32(buf, i);
-    let (seats, i) = unmarshal_u32(buf, i);
+    let (seats, _) = unmarshal_u32(buf, i);
     println!(
         "Departure time: {}",
         convert_unix_time_to_datetime(departure_time).to_string()
@@ -213,7 +204,7 @@ fn parse_monitor_seat_availability_response(
     let (has_succeeded, _) = unmarshal_u8(buf, 0);
     if has_succeeded == 1 {
         // Only after the subscription has succeeded, we can set the read timeout and continue waiting for the next message.
-        println!("Subscription succeeded");
+        println!("Subscription succeeded. Now listening for {monitor_interval} seconds...");
         let mut receive_buf = [0; 2048];
 
         // Loop until monitor_interval duration has passed.
@@ -289,7 +280,16 @@ fn prepare_get_flight_summary(
     let flight_id = std_in_reader.next().unwrap()?;
 
     // Convert the flight ID to a u32
-    let flight_id = flight_id.parse::<u32>()?;
+    let flight_id = match flight_id.parse::<u32>() {
+        Ok(flight_id) => flight_id,
+        Err(_) => {
+            println!("Invalid flight identifier");
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid flight identifier",
+            )));
+        }
+    };
 
     // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
@@ -319,10 +319,10 @@ fn prepare_reserve_seats(std_in_reader: &mut Lines<StdinLock>) -> Result<Vec<u8>
     let flight_id = match flight_id.parse::<u32>() {
         Ok(flight_id) => flight_id,
         Err(_) => {
-            println!("Invalid flight ID");
+            println!("Invalid flight identifier");
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "Invalid flight ID",
+                "Invalid flight identifier",
             )));
         }
     };
@@ -428,21 +428,6 @@ fn prepare_monitor_seat_availability(
 
     // Return the buffer
     Ok(buffer_to_send)
-}
-fn send_request(request_id: u32, payload: Vec<u8>, socket: &UdpSocket, server_addr: &SocketAddr) {
-    // Create a buffer to store the data to send with capasity 2048 bytes
-    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
-
-    // Add request ID as the first byte for the server to differentiate requests from multiple clients.
-    // Different from Service ID which is already handled by the respective `prepare` functions
-    buffer_to_send.extend_from_slice(&request_id.to_be_bytes());
-
-    // Add payload to buffer
-    buffer_to_send.extend_from_slice(&payload);
-
-    socket
-        .send_to(&buffer_to_send, &server_addr)
-        .expect("Error on send");
 }
 
 pub fn convert_unix_time_to_datetime(timestamp: u32) -> DateTime<Local> {

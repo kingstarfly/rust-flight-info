@@ -1,18 +1,15 @@
-//use std::io::{self, Read, Write, BufRead};
 use std::{
     collections::HashMap,
-    fmt,
     net::{SocketAddr, UdpSocket},
     time::{SystemTime, UNIX_EPOCH},
 };
-//use std::env;
-//use std::str;
 
-use marshaling::{
-    self, marshal_f32, marshal_string, marshal_u32, marshal_u32_array, marshal_u8, unmarshal_f32,
-    unmarshal_string, unmarshal_u32, unmarshal_u8,
-};
 use networking;
+use marshaling::{
+    self, marshal_f32, marshal_string, marshal_u32, marshal_u32_array, unmarshal_string,
+    unmarshal_u32, unmarshal_u8,
+};
+
 struct Flight {
     id: u32,
     source: String,
@@ -40,8 +37,8 @@ fn main() -> std::io::Result<()> {
         1,
         Flight {
             id: 1,
-            source: "SFO".to_string(),
-            destination: "LAX".to_string(),
+            source: "A".to_string(),
+            destination: "B".to_string(),
             departure_time: 1700000000,
             seats: 10,
             airfare: 10.1,
@@ -52,8 +49,8 @@ fn main() -> std::io::Result<()> {
         2,
         Flight {
             id: 2,
-            source: "SFO".to_string(),
-            destination: "LAX".to_string(),
+            source: "A".to_string(),
+            destination: "B".to_string(),
             departure_time: 1700000000,
             seats: 20,
             airfare: 20.2,
@@ -64,8 +61,8 @@ fn main() -> std::io::Result<()> {
         3,
         Flight {
             id: 3,
-            source: "AUS".to_string(),
-            destination: "CHN".to_string(),
+            source: "C".to_string(),
+            destination: "D".to_string(),
             departure_time: 1700000000,
             seats: 30,
             airfare: 30.3,
@@ -86,8 +83,7 @@ fn main() -> std::io::Result<()> {
         let (amt, client_addr) = socket.recv_from(&mut buf)?;
 
         // Prints out a received bytes
-        println!();
-        println!("Received {} bytes from {}", amt, client_addr);
+        println!("\nReceived {} bytes from {}", amt, client_addr);
 
         // Read the request ID in the first 4 bytes.
         let i: usize = 0;
@@ -100,13 +96,6 @@ fn main() -> std::io::Result<()> {
 
         // Call the handler for the service. It should return a u8 vector payload.
         let payload: Vec<u8> = match service_id {
-            0 => {
-                // TODO 0: Error response handler
-                // Next bytes will be a string which is the error message.
-                let (error_message, _) = unmarshal_string(&buf, i);
-                println!("Error: {}", error_message);
-                vec![]
-            }
             1 => get_flight_ids_handler(&buf[i..], &flight_db),
             2 => get_flight_summary_handler(&buf[i..], &flight_db),
             3 => reserve_seats_handler(&buf[i..], &mut flight_db, &mut watchlist_db, &socket),
@@ -117,29 +106,12 @@ fn main() -> std::io::Result<()> {
                 &client_addr,
             ),
             _ => {
-                println!("Error: The handler byte is not 0, 1, 2, 3, or 4.");
+                println!("Error: The handler byte is not 1, 2, 3, or 4.");
                 vec![]
             }
         };
 
-        // Send the response back to the client after prepending some information.
-        // Create a buffer to store the data to send with capasity 2048 bytes
-        let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
-
-        // Add request ID as the first byte for the client to check if the correct response was received.
-        buffer_to_send.extend_from_slice(&request_id.to_be_bytes());
-        print!("Appending request ID: {} ", request_id);
-
-        // Add payload to buffer
-        buffer_to_send.extend_from_slice(&payload);
-        println!("Appending payload: {:?}", payload);
-
-        println!("Sending {} bytes to {}", buffer_to_send.len(), client_addr);
-        socket
-            .send_to(&buffer_to_send, &client_addr)
-            .expect("Error on send");
-
-        // Done.
+        networking::send_response(request_id, payload, &socket, &client_addr)
     }
 }
 
