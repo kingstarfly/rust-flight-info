@@ -231,7 +231,7 @@ fn parse_monitor_seat_availability_response(
                     println!("EVENT: Flight {} has {} seats left", flight_id, num_seats);
                 }
                 Err(_) => {
-                    dbg!("Timed out waiting for response from the server");
+                    // dbg!("Timed out waiting for response from the server");
                 }
             };
         }

@@ -29,9 +29,14 @@ impl Flight {
     }
 }
 
-struct ResponseCache {
-    request_id: u32,
+struct ResponseCacheValue {
     response_payload: Vec<u8>,
+}
+
+#[derive(Eq, Hash, PartialEq)]
+struct ResponseCacheKey {
+    request_id: u32,
+    client_addr: SocketAddr,
 }
 
 #[derive(Eq, Hash, PartialEq, Clone)]
@@ -78,7 +83,7 @@ fn main() -> std::io::Result<()> {
     let mut watchlist_db: HashMap<u32, Vec<WatchlistEntry>> = HashMap::new();
 
     // Build a hashmap of request ID to a ResponseCache
-    let mut response_cache: HashMap<u32, ResponseCache> = HashMap::new();
+    let mut response_cache: HashMap<ResponseCacheKey, ResponseCacheValue> = HashMap::new();
 
     let socket = UdpSocket::bind("127.0.0.1:7878")?;
     // TODO: Set timeout for read?
@@ -102,7 +107,12 @@ fn main() -> std::io::Result<()> {
         // If it is, then use the cached payload.
         // Or else, read service ID and call handler
 
-        if let Some(response_cache_entry) = response_cache.get(&request_id) {
+        let response_cache_key = ResponseCacheKey {
+            request_id,
+            client_addr,
+        };
+
+        if let Some(response_cache_entry) = response_cache.get(&response_cache_key) {
             // If the request ID is in the response cache, then send the cached payload.
             println!("Sending cached response for request ID {}", request_id);
             networking::send_response(
@@ -137,9 +147,11 @@ fn main() -> std::io::Result<()> {
 
         // Add to the response cache.
         response_cache.insert(
-            request_id,
-            ResponseCache {
+            ResponseCacheKey {
                 request_id,
+                client_addr,
+            },
+            ResponseCacheValue {
                 response_payload: payload.clone(),
             },
         );

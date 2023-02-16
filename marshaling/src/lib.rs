@@ -1,7 +1,3 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
-
 pub fn marshal_string(string: &str, buf: &mut Vec<u8>) {
     buf.extend_from_slice(&(string.len() as u8).to_be_bytes());
     buf.extend_from_slice(string.as_bytes());
@@ -77,17 +73,4 @@ pub fn unmarshal_u32_array(buf: &[u8], mut i: usize) -> (Vec<u32>, usize) {
     }
 
     return (my_array, i);
-}
-
-
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
 }
