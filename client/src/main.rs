@@ -1,26 +1,20 @@
+use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use std::error::Error;
 use std::io::{self, BufRead, Lines, StdinLock};
 use std::net::{SocketAddr, UdpSocket};
 use std::time::{Duration, Instant};
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 
-use networking;
 use marshaling::{
     self, marshal_string, marshal_u32, marshal_u8, unmarshal_f32, unmarshal_string, unmarshal_u32,
     unmarshal_u32_array, unmarshal_u8,
 };
+use networking;
 
 const DEFAULT_TIMEOUT: u32 = 5;
 
 fn main() -> std::io::Result<()> {
-    let addrs = [
-        SocketAddr::from(([127, 0, 0, 1], 7879)),
-        SocketAddr::from(([127, 0, 0, 1], 7880)),
-        SocketAddr::from(([127, 0, 0, 1], 7881)),
-    ];
-
     let server_addr = SocketAddr::from(([127, 0, 0, 1], 7878));
-    let socket = UdpSocket::bind(&addrs[..])?; // for UDP4/6
+    let socket = UdpSocket::bind("0.0.0.0:0")?; // Bind to any available port
     socket
         .set_read_timeout(Some(Duration::new(5, 0)))
         .expect("Failed to set read timeout");
@@ -112,22 +106,42 @@ fn main() -> std::io::Result<()> {
             }
         };
 
-        // Send the buffer to the communication service which will handle communication with the server. Specify the request ID, the buffer to send and the socket.
         // Increment the request ID
         request_id += 1;
-        networking::send_request(request_id, buffer_to_send, &socket, &server_addr);
+        let mut received_amt = 0;
+        let mut should_send_request = true;
 
-        // Receive from the server and print out the response. If error, print out error.
-        let (amt, _) = match socket.recv_from(&mut receive_buf) {
-            Ok((amt, src)) => {
-                (amt, src)
+        while received_amt == 0 {
+            // Send the buffer to the communication service which will handle communication with the server. Specify the request ID, the buffer to send and the socket.
+            println!("Sending request {request_id} to server...");
+
+            // Implement RNG to decide if we should send the request or not
+            // let mut rng = rand::thread_rng();
+            // let should_send_request = rng.gen_bool(0.5);
+
+            // should_sent_request should alternate between true and false
+            should_send_request = !should_send_request;
+
+            if should_send_request {
+                networking::send_request(request_id, buffer_to_send.clone(), &socket, &server_addr);
             }
-            Err(_) => {
-                // TODO: Retry depending on invocation semantics
-                println!("Timed out waiting for response from the server");
-                break;
-            }
-        };
+            match socket.recv_from(&mut receive_buf) {
+                Ok((amt, _)) => {
+                    received_amt = amt;
+                }
+                Err(e) => {
+                    match e.kind() {
+                        io::ErrorKind::TimedOut => {
+                            println!("Client timed out waiting for a response!");
+                        }
+                        _ => {
+                            println!("Error: {}", e);
+                        }
+                    }
+                    continue;
+                }
+            };
+        }
 
         // Handle the response
         let i: usize = 0;
@@ -147,15 +161,15 @@ fn main() -> std::io::Result<()> {
                 println!("Error: {}", error_message);
             }
             1 => {
-                parse_get_flight_identifiers_response(&receive_buf[i..amt]);
+                parse_get_flight_identifiers_response(&receive_buf[i..received_amt]);
             }
             2 => {
-                parse_get_flight_summary_response(&receive_buf[i..amt]);
+                parse_get_flight_summary_response(&receive_buf[i..received_amt]);
             }
-            3 => parse_reserve_seats_response(&receive_buf[i..amt]),
+            3 => parse_reserve_seats_response(&receive_buf[i..received_amt]),
             4 => {
                 parse_monitor_seat_availability_response(
-                    &receive_buf[i..amt],
+                    &receive_buf[i..received_amt],
                     time_out_duration,
                     &socket,
                 );
@@ -196,11 +210,7 @@ fn parse_reserve_seats_response(buf: &[u8]) {
     }
 }
 
-fn parse_monitor_seat_availability_response(
-    buf: &[u8],
-    monitor_interval: u32,
-    socket: &UdpSocket,
-) {
+fn parse_monitor_seat_availability_response(buf: &[u8], monitor_interval: u32, socket: &UdpSocket) {
     let (has_succeeded, _) = unmarshal_u8(buf, 0);
     if has_succeeded == 1 {
         // Only after the subscription has succeeded, we can set the read timeout and continue waiting for the next message.

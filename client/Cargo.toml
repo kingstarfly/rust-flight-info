@@ -9,3 +9,4 @@ edition = "2021"
 marshaling = { path = "../marshaling" }
 networking = {path = "../networking" }
 chrono = "0.4.23"
+rand = "0.8.5"

@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     net::{SocketAddr, UdpSocket},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH}, fmt,
 };
 
 use networking;
@@ -41,7 +41,50 @@ struct ResponseCacheKey {
 
 #[derive(Eq, Hash, PartialEq, Clone)]
 struct WatchlistEntry(u32, SocketAddr);
+
+#[derive(PartialEq)]
+enum InvocationSemantics {
+    AtLeastOnce,
+    AtMostOnce,
+}
+
+impl fmt::Debug for InvocationSemantics {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            InvocationSemantics::AtLeastOnce => write!(f, "at-least-once"),
+            InvocationSemantics::AtMostOnce => write!(f, "at-most-once"),
+        }
+    }
+}
+
 fn main() -> std::io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+
+    // If the number of arguments is not 2, then print usage and exit.
+    if args.len() != 2 {
+        println!("Usage: cargo run --bin server alo|amo");
+        return Ok(());
+    }
+
+    // If the second argument is not 'alo' or 'amo', then print usage and exit.
+    let invocation_semantics = &args[1];
+    if invocation_semantics != "alo" && invocation_semantics != "amo" {
+        println!("Usage: cargo run --bin server alo|amo");
+        return Ok(());
+    }
+
+    // Parse the invocation semantics.
+    let invocation_semantics = match invocation_semantics.as_str() {
+        "alo" => InvocationSemantics::AtLeastOnce,
+        "amo" => InvocationSemantics::AtMostOnce,
+        _ => {
+            println!("Error: The invocation semantics is not 'alo' or 'amo'.");
+            return Ok(());
+        }
+    };
+
+    println!("Invocation semantics: {:?}", invocation_semantics);
+
     let mut flight_db = HashMap::new();
     flight_db.insert(
         1,
@@ -86,7 +129,6 @@ fn main() -> std::io::Result<()> {
     let mut response_cache: HashMap<ResponseCacheKey, ResponseCacheValue> = HashMap::new();
 
     let socket = UdpSocket::bind("127.0.0.1:7878")?;
-    // TODO: Set timeout for read?
     let mut buf = [0; 2048];
 
     loop {
@@ -112,17 +154,19 @@ fn main() -> std::io::Result<()> {
             client_addr,
         };
 
-        if let Some(response_cache_entry) = response_cache.get(&response_cache_key) {
+        // If the invocation semantics is at most once, then check the response cache.
+        if invocation_semantics == InvocationSemantics::AtMostOnce
+            && response_cache.contains_key(&response_cache_key) {
             // If the request ID is in the response cache, then send the cached payload.
             println!("Sending cached response for request ID {}", request_id);
             networking::send_response(
                 request_id,
-                response_cache_entry.response_payload.clone(),
+                response_cache.get(&response_cache_key).unwrap().response_payload.clone(),
                 &socket,
                 &client_addr,
             );
             continue;
-        } 
+        }
 
         // Read the service ID in the next byte.
         let (service_id, i) = unmarshal_u8(&buf, i);
