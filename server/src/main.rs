@@ -157,7 +157,7 @@ fn main() -> std::io::Result<()> {
         if invocation_semantics == InvocationSemantics::AtMostOnce {
             if response_cache.contains_key(&response_cache_key) {
                 // If the request ID is in the response cache, then send the cached payload.
-                println!("[server] Cache HIT for request ID {}", request_id);
+                println!("[server] Cache HIT for request ID {} from Client: {}", request_id, client_addr);
                 networking::send_response(
                     request_id,
                     response_cache
@@ -173,7 +173,7 @@ fn main() -> std::io::Result<()> {
                 should_simulate_failure = !should_simulate_failure;
                 continue;
             } else {
-                println!("[server] Cache MISS for request ID {}", request_id);
+                println!("[server] Cache MISS for request ID {} for Client: {}", request_id, client_addr);
             }
         }
 
