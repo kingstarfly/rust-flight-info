@@ -272,7 +272,7 @@ fn prepare_get_flight_identifiers(
         return Err("Destination must be made up of only letters".into());
     }
 
-    // Create a buffer to store the data to send with capasity 2048 bytes
+    // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add service ID

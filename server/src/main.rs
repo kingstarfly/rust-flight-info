@@ -220,7 +220,7 @@ fn main() -> std::io::Result<()> {
 fn error_handler(error_message: &str) -> Vec<u8> {
     println!("Preparing error response: {error_message}");
 
-    // Create a buffer to store the data to send with capasity 2048 bytes
+    // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add the status/service ID as the first byte. 0 means error.
@@ -250,7 +250,7 @@ fn get_flight_ids_handler(buf: &[u8], flight_db: &HashMap<u32, Flight>) -> Vec<u
         );
     }
 
-    // Create a buffer to store the data to send with capasity 2048 bytes
+    // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add the handler byte.
@@ -277,7 +277,7 @@ fn get_flight_summary_handler(buf: &[u8], flight_db: &HashMap<u32, Flight>) -> V
     // Get the flight from the result.
     let flight = result.unwrap();
 
-    // Create a buffer to store the data to send with capasity 2048 bytes
+    // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add the handler byte.

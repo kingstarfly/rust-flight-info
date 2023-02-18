@@ -6,7 +6,7 @@ pub fn send_request(
     socket: &UdpSocket,
     server_addr: &SocketAddr,
 ) {
-    // Create a buffer to store the data to send with capasity 2048 bytes
+    // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add request ID as the first byte for the server to differentiate requests from multiple clients.
@@ -35,7 +35,7 @@ pub fn send_response(
         return;
     }
     // Send the response back to the client after prepending some information.
-    // Create a buffer to store the data to send with capasity 2048 bytes
+    // Create a buffer to store the data to send with capacity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
 
     // Add request ID as the first byte for the client to check if the correct response was received.
