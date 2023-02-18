@@ -1,14 +1,15 @@
 use std::{
     collections::HashMap,
+    fmt,
     net::{SocketAddr, UdpSocket},
-    time::{SystemTime, UNIX_EPOCH}, fmt,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use networking;
 use marshaling::{
     self, marshal_f32, marshal_string, marshal_u32, marshal_u32_array, unmarshal_string,
     unmarshal_u32, unmarshal_u8,
 };
+use networking;
 
 struct Flight {
     id: u32,
@@ -130,6 +131,7 @@ fn main() -> std::io::Result<()> {
 
     let socket = UdpSocket::bind("127.0.0.1:7878")?;
     let mut buf = [0; 2048];
+    let mut should_simulate_failure = true;
 
     loop {
         // Receives a single datagram message on the socket.
@@ -137,13 +139,10 @@ fn main() -> std::io::Result<()> {
         // the message, it will be cut off.
         let (amt, client_addr) = socket.recv_from(&mut buf)?;
 
-        // Prints out a received bytes
-        println!("\nReceived {} bytes from {}", amt, client_addr);
-
         // Read the request ID in the first 4 bytes.
         let i: usize = 0;
         let (request_id, i) = unmarshal_u32(&buf, i);
-        println!("Request ID: {}", request_id);
+        println!("[server] Received Request ID: {} from Client: {}", request_id, client_addr);
 
         // Check if the request ID is in the response cache.
         // If it is, then use the cached payload.
@@ -155,22 +154,32 @@ fn main() -> std::io::Result<()> {
         };
 
         // If the invocation semantics is at most once, then check the response cache.
-        if invocation_semantics == InvocationSemantics::AtMostOnce
-            && response_cache.contains_key(&response_cache_key) {
-            // If the request ID is in the response cache, then send the cached payload.
-            println!("Sending cached response for request ID {}", request_id);
-            networking::send_response(
-                request_id,
-                response_cache.get(&response_cache_key).unwrap().response_payload.clone(),
-                &socket,
-                &client_addr,
-            );
-            continue;
+        if invocation_semantics == InvocationSemantics::AtMostOnce {
+            if response_cache.contains_key(&response_cache_key) {
+                // If the request ID is in the response cache, then send the cached payload.
+                println!("[server] Cache HIT for request ID {}", request_id);
+                networking::send_response(
+                    request_id,
+                    response_cache
+                        .get(&response_cache_key)
+                        .unwrap()
+                        .response_payload
+                        .clone(),
+                    &socket,
+                    &client_addr,
+                    should_simulate_failure
+                );
+                // Toggle the should_simulate_failure flag.
+                should_simulate_failure = !should_simulate_failure;
+                continue;
+            } else {
+                println!("[server] Cache MISS for request ID {}", request_id);
+            }
         }
 
         // Read the service ID in the next byte.
         let (service_id, i) = unmarshal_u8(&buf, i);
-        println!("Service ID: {}", service_id);
+        print!("[server] Handling Service {}...", service_id);
 
         // Call the handler for the service. It should return a u8 vector payload.
         let payload: Vec<u8> = match service_id {
@@ -189,6 +198,7 @@ fn main() -> std::io::Result<()> {
             }
         };
 
+        println!("Done!");
         // Add to the response cache.
         response_cache.insert(
             ResponseCacheKey {
@@ -200,7 +210,10 @@ fn main() -> std::io::Result<()> {
             },
         );
 
-        networking::send_response(request_id, payload, &socket, &client_addr)
+        networking::send_response(request_id, payload, &socket, &client_addr, should_simulate_failure);
+
+        // Toggle the should_simulate_failure flag.
+        should_simulate_failure = !should_simulate_failure;
     }
 }
 

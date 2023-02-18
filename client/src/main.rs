@@ -109,22 +109,20 @@ fn main() -> std::io::Result<()> {
         // Increment the request ID
         request_id += 1;
         let mut received_amt = 0;
-        let mut should_send_request = true;
 
         while received_amt == 0 {
             // Send the buffer to the communication service which will handle communication with the server. Specify the request ID, the buffer to send and the socket.
-            println!("Sending request {request_id} to server...");
-
             // Implement RNG to decide if we should send the request or not
             // let mut rng = rand::thread_rng();
             // let should_send_request = rng.gen_bool(0.5);
 
             // should_sent_request should alternate between true and false
-            should_send_request = !should_send_request;
+            // should_send_request = !should_send_request;
 
-            if should_send_request {
-                networking::send_request(request_id, buffer_to_send.clone(), &socket, &server_addr);
-            }
+            // if should_send_request {
+            //     networking::send_request(request_id, buffer_to_send.clone(), &socket, &server_addr);
+            // }
+            networking::send_request(request_id, buffer_to_send.clone(), &socket, &server_addr);
             match socket.recv_from(&mut receive_buf) {
                 Ok((amt, _)) => {
                     received_amt = amt;
@@ -261,8 +259,18 @@ fn prepare_get_flight_identifiers(
     println!("Enter source:");
     let source = std_in_reader.next().unwrap()?;
 
+    // Validate source is a made up of only letters.
+    if !source.chars().all(|c| c.is_alphabetic()) {
+        return Err("Source must be made up of only letters".into());
+    }
+
     println!("Enter destination:");
     let destination = std_in_reader.next().unwrap()?;
+
+    // Validate destination is a made up of only letters.
+    if !destination.chars().all(|c| c.is_alphabetic()) {
+        return Err("Destination must be made up of only letters".into());
+    }
 
     // Create a buffer to store the data to send with capasity 2048 bytes
     let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
