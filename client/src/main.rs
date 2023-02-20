@@ -15,6 +15,7 @@ const DEFAULT_TIMEOUT: u32 = 5;
 fn main() -> std::io::Result<()> {
     let server_addr = SocketAddr::from(([127, 0, 0, 1], 7878));
     let socket = UdpSocket::bind("0.0.0.0:0")?; // Bind to any available port
+    println!("-- Client is listening on port: {}", socket.local_addr().unwrap().port());
     socket
         .set_read_timeout(Some(Duration::new(5, 0)))
         .expect("Failed to set read timeout");
@@ -112,16 +113,6 @@ fn main() -> std::io::Result<()> {
 
         while received_amt == 0 {
             // Send the buffer to the communication service which will handle communication with the server. Specify the request ID, the buffer to send and the socket.
-            // Implement RNG to decide if we should send the request or not
-            // let mut rng = rand::thread_rng();
-            // let should_send_request = rng.gen_bool(0.5);
-
-            // should_sent_request should alternate between true and false
-            // should_send_request = !should_send_request;
-
-            // if should_send_request {
-            //     networking::send_request(request_id, buffer_to_send.clone(), &socket, &server_addr);
-            // }
             networking::send_request(request_id, buffer_to_send.clone(), &socket, &server_addr);
             match socket.recv_from(&mut receive_buf) {
                 Ok((amt, _)) => {
@@ -130,7 +121,7 @@ fn main() -> std::io::Result<()> {
                 Err(e) => {
                     match e.kind() {
                         io::ErrorKind::TimedOut => {
-                            println!("Client timed out waiting for a response!");
+                            println!("[client] Client timed out waiting for a response!");
                         }
                         _ => {
                             println!("Error: {}", e);
@@ -141,10 +132,9 @@ fn main() -> std::io::Result<()> {
             };
         }
 
-        // Handle the response
         let i: usize = 0;
-        // Check if request ID is the same as the one we sent, if not, keep waiting.
         let (received_request_id, i) = unmarshal_u32(&receive_buf, i);
+        // Check if request ID is the same as the one we sent, if not, keep waiting.
         if received_request_id != request_id {
             println!("Request ID not the same as the one we sent. Continuing to wait.");
             continue;
@@ -301,7 +291,6 @@ fn prepare_get_flight_summary(
     let flight_id = match flight_id.parse::<u32>() {
         Ok(flight_id) => flight_id,
         Err(_) => {
-            println!("Invalid flight identifier");
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "Invalid flight identifier",

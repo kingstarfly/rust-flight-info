@@ -84,8 +84,6 @@ fn main() -> std::io::Result<()> {
         }
     };
 
-    println!("Invocation semantics: {:?}", invocation_semantics);
-
     let mut flight_db = HashMap::new();
     flight_db.insert(
         1,
@@ -130,6 +128,10 @@ fn main() -> std::io::Result<()> {
     let mut response_cache: HashMap<ResponseCacheKey, ResponseCacheValue> = HashMap::new();
 
     let socket = UdpSocket::bind("127.0.0.1:7878")?;
+    println!("-- Server is listening on port {}", socket.local_addr().unwrap().port());
+    println!("\n\nInvocation semantics = {:?}", invocation_semantics);
+
+
     let mut buf = [0; 2048];
     let mut should_simulate_failure = true;
 
@@ -137,7 +139,7 @@ fn main() -> std::io::Result<()> {
         // Receives a single datagram message on the socket.
         // If `buf` is too small to hold
         // the message, it will be cut off.
-        let (amt, client_addr) = socket.recv_from(&mut buf)?;
+        let (_, client_addr) = socket.recv_from(&mut buf)?;
 
         // Read the request ID in the first 4 bytes.
         let i: usize = 0;
