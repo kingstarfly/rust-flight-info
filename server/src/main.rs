@@ -61,18 +61,28 @@ impl fmt::Debug for InvocationSemantics {
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
+    let usage_message = "Usage: cargo run --bin server alo|amo true|false";
+
     // If the number of arguments is not 2, then print usage and exit.
-    if args.len() != 2 {
-        println!("Usage: cargo run --bin server alo|amo");
+    if args.len() < 3 {
+        println!("{}", usage_message);
         return Ok(());
     }
 
     // If the second argument is not 'alo' or 'amo', then print usage and exit.
     let invocation_semantics = &args[1];
     if invocation_semantics != "alo" && invocation_semantics != "amo" {
-        println!("Usage: cargo run --bin server alo|amo");
+        println!("{}", usage_message);
         return Ok(());
     }
+
+    
+    let simulate_failure = &args[2];
+    if simulate_failure != "true" && simulate_failure != "false" {
+    println!("{}", usage_message);
+        return Ok(());
+    }
+
 
     // Parse the invocation semantics.
     let invocation_semantics = match invocation_semantics.as_str() {
@@ -133,7 +143,11 @@ fn main() -> std::io::Result<()> {
 
 
     let mut buf = [0; 2048];
-    let mut should_simulate_failure = true;
+    
+    // Convert arg[2] to a boolean
+    let should_simulate_failure = args[2].parse::<bool>().unwrap();
+
+    let mut should_fail_next = true;
 
     loop {
         // Receives a single datagram message on the socket.
@@ -169,10 +183,10 @@ fn main() -> std::io::Result<()> {
                         .clone(),
                     &socket,
                     &client_addr,
-                    should_simulate_failure
+                    should_simulate_failure && should_fail_next
                 );
                 // Toggle the should_simulate_failure flag.
-                should_simulate_failure = !should_simulate_failure;
+                should_fail_next = !should_fail_next;
                 continue;
             } else {
                 println!("[server] Cache MISS for request ID {} for Client: {}", request_id, client_addr);
@@ -212,10 +226,10 @@ fn main() -> std::io::Result<()> {
             },
         );
 
-        networking::send_response(request_id, payload, &socket, &client_addr, should_simulate_failure);
+        networking::send_response(request_id, payload, &socket, &client_addr, should_simulate_failure && should_fail_next);
 
         // Toggle the should_simulate_failure flag.
-        should_simulate_failure = !should_simulate_failure;
+        should_fail_next = !should_fail_next;
     }
 }
 
