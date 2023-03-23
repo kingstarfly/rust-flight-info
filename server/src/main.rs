@@ -465,14 +465,15 @@ fn monitor_seat_availability_handler(
     );
 
     // Just append the entry to the watchlist.
-    if watchlist_db.contains_key(&flight_id) {
-        let watchlist = watchlist_db.get_mut(&flight_id).unwrap();
-        watchlist.push(entry);
-    } else {
-        let mut watchlist = Vec::<WatchlistEntry>::new();
-        watchlist.push(entry);
+    if !watchlist_db.contains_key(&flight_id) {
+        let watchlist = Vec::<WatchlistEntry>::new();
         watchlist_db.insert(flight_id, watchlist);
-    }
+    } 
+    let watchlist = watchlist_db.get_mut(&flight_id).unwrap();
+
+    // Go through each entry and remove any entries with the same client address.
+    watchlist.retain(|entry| entry.1 != *client_addr);
+    watchlist.push(entry);
 
     println!("Added entry to watchlist.");
 
