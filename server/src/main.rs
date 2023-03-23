@@ -29,6 +29,15 @@ impl Flight {
             false
         }
     }
+
+    fn reserve_baggage(&mut self, baggage_kg: u32) -> bool {
+        if self.baggage_capacity_kg >= baggage_kg {
+            self.baggage_capacity_kg -= baggage_kg;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 struct ResponseCacheValue {
@@ -222,8 +231,9 @@ fn main() -> std::io::Result<()> {
                 &client_addr,
             ),
             5 => get_earliest_flight_ids(&buf[i..], &flight_db),
+            6 => reserve_baggage_handler(&buf[i..], &mut flight_db),
             _ => {
-                println!("Error: The handler byte is not 1, 2, 3, or 4.");
+                println!("Error: Handler byte is not 1-6.");
                 vec![]
             }
         };
@@ -471,6 +481,41 @@ fn monitor_seat_availability_handler(
 
     // Add the handler byte.
     buffer_to_send.push(4);
+
+    // Add 1 if successful.
+    buffer_to_send.push(1);
+
+    buffer_to_send
+}
+
+fn reserve_baggage_handler(
+    buf: &[u8],
+    flight_db: &mut HashMap<u32, Flight>,
+) -> Vec<u8> {
+    // Read id and baggage weight to reserve in kg from buf.
+    let (flight_id, i) = unmarshal_u32(buf, 0);
+    let (baggage_weight, _) = unmarshal_u32(buf, i);
+
+    // Try to reserve the baggage.
+    if !flight_db.contains_key(&flight_id) {
+        return error_handler("No flight found for the given flight ID.");
+    }
+
+    let flight = flight_db.get_mut(&flight_id).unwrap();
+
+    let reservation_success = flight.reserve_baggage(baggage_weight);
+
+    if !reservation_success {
+        println!("Reservation of baggage failed.");
+        let current_baggage_capacity = flight.baggage_capacity_kg;
+        return error_handler(&format!("There is not enough baggage capacity. You tried to reserve {baggage_weight} kg of baggage, but there are only {current_baggage_capacity} kg of baggage remaining."));
+    }
+
+    // Create a buffer to store the data to send with capacity 2048 bytes
+    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
+
+    // Add the handler byte.
+    buffer_to_send.push(6);
 
     // Add 1 if successful.
     buffer_to_send.push(1);
