@@ -18,6 +18,7 @@ struct Flight {
     departure_time: u32, // Unix time
     seats: u32,
     airfare: f32,
+    baggage_capacity_kg: u32,
 }
 impl Flight {
     fn reserve_seats(&mut self, num_seats: u32) -> bool {
@@ -102,6 +103,7 @@ fn main() -> std::io::Result<()> {
             departure_time: 1700000000,
             seats: 10,
             airfare: 10.1,
+            baggage_capacity_kg: 1000,
         },
     );
 
@@ -114,6 +116,7 @@ fn main() -> std::io::Result<()> {
             departure_time: 1700000000,
             seats: 20,
             airfare: 20.2,
+            baggage_capacity_kg: 1000,
         },
     );
 
@@ -126,6 +129,7 @@ fn main() -> std::io::Result<()> {
             departure_time: 1700000000,
             seats: 30,
             airfare: 30.3,
+            baggage_capacity_kg: 1000,
         },
     );
 
@@ -315,10 +319,11 @@ fn get_flight_summary_handler(buf: &[u8], flight_db: &HashMap<u32, Flight>) -> V
     // Add the handler byte.
     buffer_to_send.push(2);
 
-    // Add the departure time, airfare and seats to the buffer.
+    // Add the departure time, airfare, seats and remaining baggage capacity to the buffer.
     marshal_u32(flight.departure_time, &mut buffer_to_send);
     marshal_f32(flight.airfare, &mut buffer_to_send);
     marshal_u32(flight.seats, &mut buffer_to_send);
+    marshal_u32(flight.baggage_capacity_kg, &mut buffer_to_send);
 
     buffer_to_send
 }

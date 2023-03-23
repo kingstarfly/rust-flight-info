@@ -188,13 +188,15 @@ fn parse_get_flight_identifiers_response(buf: &[u8]) {
 fn parse_get_flight_summary_response(buf: &[u8]) {
     let (departure_time, i) = unmarshal_u32(buf, 0);
     let (airfare, i) = unmarshal_f32(buf, i);
-    let (seats, _) = unmarshal_u32(buf, i);
+    let (seats, i) = unmarshal_u32(buf, i);
+    let (remaining_baggage_capacity_kg, _) = unmarshal_u32(buf, i);
     println!(
         "Departure time: {}",
         convert_unix_time_to_datetime(departure_time).to_string()
     );
     println!("Airfare: {}", airfare);
     println!("Seats: {}", seats);
+    println!("Remaining baggage capacity: {} kg", remaining_baggage_capacity_kg);
 }
 
 fn parse_reserve_seats_response(buf: &[u8]) {
