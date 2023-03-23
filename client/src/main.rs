@@ -64,10 +64,15 @@ fn main() -> std::io::Result<()> {
             .expect("Error on iteration")
             .expect("Error on read");
 
-        // Convert the service choice to a u32
-        let service_choice: u8 = service_choice
-            .parse::<u8>()
-            .expect("Error on parsing user's service choice");
+        // Convert the service choice to a u8, if error then continue loop
+        let service_choice: u8 = match service_choice.parse() {
+            Ok(num) => num,
+            Err(_) => {
+                println!("Invalid choice, please try again.");
+                continue;
+            }
+        };
+                       
 
         // Match the service choice to the appropriate service
         // Each service will return a byte array that will be sent to the server. Size is at most 2048 bytes.
