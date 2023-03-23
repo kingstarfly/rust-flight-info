@@ -49,7 +49,8 @@ fn main() -> std::io::Result<()> {
         println!("2. Get Flight Summary");
         println!("3. Reserve Seats");
         println!("4. Monitor Seat Availability");
-        println!("5. Exit");
+        println!("5. Get Earliest Flight Identifiers");
+        println!("6. Exit");
 
         // Read input from stdin and interpret it as a u32
         let service_choice = lines
@@ -94,7 +95,14 @@ fn main() -> std::io::Result<()> {
                     continue;
                 }
             },
-            5 => {
+            5 => match prepare_earliest_flight_ids(&mut lines) {
+                Ok(buffer) => buffer,
+                Err(e) => {
+                    println!("Error: {}", e);
+                    continue;
+                }
+            },
+            6 => {
                 // Exit the program
                 break;
             }
@@ -162,6 +170,7 @@ fn main() -> std::io::Result<()> {
                     &socket,
                 );
             }
+            5 => parse_get_earliest_flight_ids_response(&receive_buf[i..received_amt]),
             _ => {
                 println!("Invalid handler byte");
             }
@@ -238,6 +247,17 @@ fn parse_monitor_seat_availability_response(buf: &[u8], monitor_interval: u32, s
         // This should not be reachable because any error will be already caught by the handler byte being 0.
         println!("Subscription failed");
     }
+}
+
+fn parse_get_earliest_flight_ids_response(buf: &[u8]) {
+    let (flight_ids, _) = unmarshal_u32_array(buf, 0);
+
+    if flight_ids.len() == 0 {
+        println!("No flights found for the given source.");
+    } else {
+        println!("Flight IDs: {:#?}", flight_ids);
+    }
+
 }
 
 // Might return errors from IO, or from bad user input.
@@ -432,6 +452,33 @@ fn prepare_monitor_seat_availability(
 
     // Add monitor interval
     marshal_u32(monitor_interval, &mut buffer_to_send);
+
+    // Return the buffer
+    Ok(buffer_to_send)
+}
+
+fn prepare_earliest_flight_ids(
+    std_in_reader: &mut Lines<StdinLock>,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    const GET_EARLIEST_FLIGHT_IDS: u8 = 5;
+
+    // Gets input from user for source and destination.
+    println!("Enter source:");
+    let source = std_in_reader.next().unwrap()?;
+
+    // Validate source is a made up of only letters.
+    if !source.chars().all(|c| c.is_alphabetic()) {
+        return Err("Source must be made up of only letters".into());
+    }
+
+    // Create a buffer to store the data to send with capacity 2048 bytes
+    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
+
+    // Add service ID as first byte
+    marshal_u8(GET_EARLIEST_FLIGHT_IDS, &mut buffer_to_send);
+
+    // Add flight source
+    marshal_string(&source, &mut buffer_to_send);
 
     // Return the buffer
     Ok(buffer_to_send)

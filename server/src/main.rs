@@ -76,13 +76,11 @@ fn main() -> std::io::Result<()> {
         return Ok(());
     }
 
-    
     let simulate_failure = &args[2];
     if simulate_failure != "true" && simulate_failure != "false" {
-    println!("{}", usage_message);
+        println!("{}", usage_message);
         return Ok(());
     }
-
 
     // Parse the invocation semantics.
     let invocation_semantics = match invocation_semantics.as_str() {
@@ -138,12 +136,14 @@ fn main() -> std::io::Result<()> {
     let mut response_cache: HashMap<ResponseCacheKey, ResponseCacheValue> = HashMap::new();
 
     let socket = UdpSocket::bind("127.0.0.1:7878")?;
-    println!("-- Server is listening on port {}", socket.local_addr().unwrap().port());
+    println!(
+        "-- Server is listening on port {}",
+        socket.local_addr().unwrap().port()
+    );
     println!("\n\nInvocation semantics = {:?}", invocation_semantics);
 
-
     let mut buf = [0; 2048];
-    
+
     // Convert arg[2] to a boolean
     let should_simulate_failure = args[2].parse::<bool>().unwrap();
 
@@ -158,7 +158,10 @@ fn main() -> std::io::Result<()> {
         // Read the request ID in the first 4 bytes.
         let i: usize = 0;
         let (request_id, i) = unmarshal_u32(&buf, i);
-        println!("[server] Received Request ID: {} from Client: {}", request_id, client_addr);
+        println!(
+            "[server] Received Request ID: {} from Client: {}",
+            request_id, client_addr
+        );
 
         // Check if the request ID is in the response cache.
         // If it is, then use the cached payload.
@@ -173,7 +176,10 @@ fn main() -> std::io::Result<()> {
         if invocation_semantics == InvocationSemantics::AtMostOnce {
             if response_cache.contains_key(&response_cache_key) {
                 // If the request ID is in the response cache, then send the cached payload.
-                println!("[server] Cache HIT for request ID {} from Client: {}", request_id, client_addr);
+                println!(
+                    "[server] Cache HIT for request ID {} from Client: {}",
+                    request_id, client_addr
+                );
                 networking::send_response(
                     request_id,
                     response_cache
@@ -183,13 +189,16 @@ fn main() -> std::io::Result<()> {
                         .clone(),
                     &socket,
                     &client_addr,
-                    should_simulate_failure && should_fail_next
+                    should_simulate_failure && should_fail_next,
                 );
                 // Toggle the should_simulate_failure flag.
                 should_fail_next = !should_fail_next;
                 continue;
             } else {
-                println!("[server] Cache MISS for request ID {} for Client: {}", request_id, client_addr);
+                println!(
+                    "[server] Cache MISS for request ID {} for Client: {}",
+                    request_id, client_addr
+                );
             }
         }
 
@@ -208,6 +217,7 @@ fn main() -> std::io::Result<()> {
                 &mut watchlist_db,
                 &client_addr,
             ),
+            5 => get_earliest_flight_ids(&buf[i..], &flight_db),
             _ => {
                 println!("Error: The handler byte is not 1, 2, 3, or 4.");
                 vec![]
@@ -226,7 +236,13 @@ fn main() -> std::io::Result<()> {
             },
         );
 
-        networking::send_response(request_id, payload, &socket, &client_addr, should_simulate_failure && should_fail_next);
+        networking::send_response(
+            request_id,
+            payload,
+            &socket,
+            &client_addr,
+            should_simulate_failure && should_fail_next,
+        );
 
         // Toggle the should_simulate_failure flag.
         should_fail_next = !should_fail_next;
@@ -303,6 +319,42 @@ fn get_flight_summary_handler(buf: &[u8], flight_db: &HashMap<u32, Flight>) -> V
     marshal_u32(flight.departure_time, &mut buffer_to_send);
     marshal_f32(flight.airfare, &mut buffer_to_send);
     marshal_u32(flight.seats, &mut buffer_to_send);
+
+    buffer_to_send
+}
+
+fn get_earliest_flight_ids(buf: &[u8], flight_db: &HashMap<u32, Flight>) -> Vec<u8> {
+    // Read the source from the buffer
+    let (source, _) = unmarshal_string(buf, 0);
+
+    // Get flights from flights_db with source and seats > 0
+    // Using the minimum departure time from these flights, only select flights with that departure time
+    // Return the flight IDs of these flights
+    let valid_flights = flight_db
+        .values()
+        .filter(|flight| flight.source == source && flight.seats > 0)
+        .collect::<Vec<&Flight>>();
+    
+    let earliest_time = valid_flights.iter().map(|flight| flight.departure_time).min().unwrap();
+
+    let earliest_flight_ids = valid_flights
+        .iter()
+        .filter(|flight| flight.departure_time == earliest_time)
+        .map(|flight| flight.id)
+        .collect::<Vec<u32>>();
+
+    // Sort the flight IDs in asc order.
+    let mut earliest_flight_ids = earliest_flight_ids;
+    earliest_flight_ids.sort();
+
+    // Create a buffer to store the data to send with capacity 2048 bytes
+    let mut buffer_to_send: Vec<u8> = Vec::with_capacity(2048);
+
+    // Add the handler byte.
+    buffer_to_send.push(5);
+
+    // Add only the flight IDs to the buffer.
+    marshal_u32_array(&earliest_flight_ids, &mut buffer_to_send);
 
     buffer_to_send
 }
